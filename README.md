@@ -62,18 +62,7 @@ no system files, no units, no `~/.ssh`. Your machine list survives in
 `~/.config/hop/hosts.json`, so reinstalling picks up where you left off;
 delete that directory too if you want it gone.
 
-### Working on it locally
-
-```bash
-git clone https://github.com/perminder-klair/omarchy-hop.git ~/Projects/hop
-ln -s ~/Projects/hop ~/.config/omarchy/plugins/co.klair.hop
-omarchy-shell shell rescanPlugins
-omarchy plugin enable co.klair.hop right
-```
-
-Editing a file under `~/.config/omarchy/plugins/` hot-reloads the plugin code,
-but an already-loaded panel instance is not rebuilt — run
-`omarchy-restart-shell` after changing `Panel.qml`.
+Hacking on it instead of just using it? See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Using it
 
