@@ -1,0 +1,118 @@
+#!/usr/bin/env python3
+"""Safely read Hop's replaceable JSON store.
+
+The Omarchy shell is a long-lived process, so it must never open the
+predictable store path itself.  A same-user process could replace that path
+with a FIFO, symlink, device, or implausibly large file and make an ordinary
+open block or an unbounded read consume the shell's memory.
+
+Open and validation happen here, in a short-lived helper.  O_NONBLOCK keeps a
+special file from blocking during open, O_NOFOLLOW rejects symlinks in that
+same syscall, and fstat validates the descriptor already held before anything
+is read.  Both input and normalized output are capped at one MiB.
+"""
+
+import json
+import math
+import os
+import stat
+import sys
+
+
+MAX_STORE_BYTES = 1024 * 1024
+EMPTY_STORE = {"version": 1, "hosts": []}
+
+
+class StoreError(Exception):
+    """A store that cannot safely be consumed."""
+
+
+def read_store(path: str) -> dict:
+    try:
+        fd = os.open(path, os.O_RDONLY | os.O_NONBLOCK | os.O_NOFOLLOW)
+    except FileNotFoundError:
+        return EMPTY_STORE.copy()
+    except OSError as exc:
+        raise StoreError(f"cannot safely open {path}: {exc.strerror}") from exc
+
+    try:
+        info = os.fstat(fd)
+        if not stat.S_ISREG(info.st_mode):
+            raise StoreError(f"refusing non-regular store: {path}")
+        if info.st_size > MAX_STORE_BYTES:
+            raise StoreError(f"store exceeds {MAX_STORE_BYTES} bytes: {path}")
+
+        chunks = []
+        remaining = MAX_STORE_BYTES + 1
+        while remaining:
+            chunk = os.read(fd, min(65536, remaining))
+            if not chunk:
+                break
+            chunks.append(chunk)
+            remaining -= len(chunk)
+        raw = b"".join(chunks)
+    except OSError as exc:
+        raise StoreError(f"cannot safely read {path}: {exc.strerror}") from exc
+    finally:
+        os.close(fd)
+
+    if len(raw) > MAX_STORE_BYTES:
+        raise StoreError(f"store exceeds {MAX_STORE_BYTES} bytes: {path}")
+
+    def reject_nonstandard_number(value: str) -> None:
+        raise ValueError(f"non-standard JSON number: {value}")
+
+    def parse_finite_float(value: str) -> float:
+        number = float(value)
+        if not math.isfinite(number):
+            raise ValueError(f"non-finite JSON number: {value}")
+        return number
+
+    try:
+        value = json.loads(
+            raw.decode("utf-8"),
+            parse_constant=reject_nonstandard_number,
+            parse_float=parse_finite_float,
+        )
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+        raise StoreError(f"invalid JSON in {path}") from exc
+
+    if not isinstance(value, dict):
+        raise StoreError(f"store root must be an object: {path}")
+    hosts = value.get("hosts", [])
+    if not isinstance(hosts, list):
+        raise StoreError(f"store hosts must be an array: {path}")
+    value["hosts"] = hosts
+    return value
+
+
+def emit(value: object) -> None:
+    encoded = (
+        json.dumps(value, ensure_ascii=False, separators=(",", ":")) + "\n"
+    ).encode("utf-8")
+    if len(encoded) > MAX_STORE_BYTES:
+        raise StoreError(f"parsed store exceeds {MAX_STORE_BYTES} bytes")
+    sys.stdout.buffer.write(encoded)
+
+
+def main() -> int:
+    args = sys.argv[1:]
+    hosts_only = False
+    if args[:1] == ["--hosts"]:
+        hosts_only = True
+        args = args[1:]
+    if len(args) != 1:
+        print("usage: hop-read-store [--hosts] PATH", file=sys.stderr)
+        return 2
+
+    try:
+        store = read_store(args[0])
+        emit(store["hosts"] if hosts_only else store)
+    except StoreError as exc:
+        print(f"hop: {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

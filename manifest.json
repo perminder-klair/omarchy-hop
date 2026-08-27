@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "id": "co.klair.hop",
   "name": "Hop",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "Parminder Klair",
   "license": "MIT",
   "description": "Keep your SSH machines in the bar. Pick one and it opens in your default Omarchy terminal, runs the startup script you gave it, and leaves you in an interactive shell.",

@@ -36,6 +36,7 @@ Everything here ships with Omarchy; the list is for completeness.
 |---|---|
 | `openssh` | The sessions. |
 | `jq` | The CLI reads and writes the store with it. |
+| `python` | Safely opens, validates and size-caps the store before parsing. |
 | `nautilus` + `gvfs` | Only for the Files button. Without them the rest still works. |
 
 ## Install
@@ -153,6 +154,7 @@ windowrule = workspace 4, class:^(org\.omarchy\.hop)$
 |------|------|
 | `~/.config/hop/hosts.json` | The machine list. Plain JSON, safe to edit or sync. |
 | `bin/hop` | The CLI the panel drives. |
+| `bin/hop-read-store` | The bounded, descriptor-validated store reader. |
 
 The store holds no secrets, but it is created `0600` inside a `0700`
 directory anyway — a list of which machines you have and who you log in as is

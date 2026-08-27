@@ -21,10 +21,11 @@ looking at the old panel and wondering why your edit did nothing.
 | File | What it owns |
 |------|--------------|
 | `manifest.json` | Plugin id, kinds, bar-widget metadata. |
-| `Service.qml` | The machine list, the store poll, the `hop` IPC target. |
+| `Service.qml` | The machine list, the bounded store poll, the `hop` IPC target. |
 | `BarWidget.qml` | The bar icon and the panel loader. |
 | `Panel.qml` | List mode and the add/edit form. |
-| `bin/hop` | Every read, write and launch. |
+| `bin/hop` | Every store operation and launch. |
+| `bin/hop-read-store` | Descriptor-safe, size-capped JSON reads. |
 
 The QML never touches the store or builds an `ssh` command itself — it shells
 out to `bin/hop`. That way the panel, a keybinding and a terminal all mutate
@@ -45,9 +46,10 @@ inside the plugin folder.
 
 ## Things worth knowing
 
-- **The store is rewritten by atomic rename.** A `FileView` watcher alone
-  misses those, because the rename swaps out the inode it is holding — hence
-  the poll in `Service.qml` alongside the watcher.
+- **The store is rewritten by atomic rename.** `Service.qml` deliberately
+  polls through `bin/hop`; it never opens or watches the predictable path.
+  `bin/hop-read-store` opens with `O_NONBLOCK | O_NOFOLLOW`, validates the
+  held descriptor with `fstat`, and caps input and parsed output at one MiB.
 - **ssh runs remote commands in a non-login, non-interactive shell.** Startup
   scripts go through `$SHELL -lc` for this reason; see the comment in
   `ssh_argv`.

@@ -161,21 +161,10 @@ Item {
     }
   }
 
-  // The store is editable by hand, by the CLI, and by this panel, so the
-  // list is re-read rather than assumed. FileView alone is not enough: every
-  // write lands as an atomic rename, which replaces the inode the watcher is
-  // holding, so a hand edit would be seen and a `hop add` would not. The
-  // watcher covers hand edits instantly; the poll covers everything else.
-  FileView {
-    path: root.storePath
-    watchChanges: true
-    printErrors: false
-    onFileChanged: {
-      reload()
-      root.refresh()
-    }
-  }
-
+  // Poll the short-lived CLI rather than opening or watching the predictable
+  // store path in this long-lived shell process. The CLI's reader uses a
+  // nonblocking, no-follow open, validates the held descriptor, caps both the
+  // file and output sizes, and returns only parsed JSON.
   Timer {
     interval: 10000
     repeat: true

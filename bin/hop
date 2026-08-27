@@ -16,6 +16,8 @@ set -euo pipefail
 CONFIG_DIR="${HOP_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/hop}"
 STORE="$CONFIG_DIR/hosts.json"
 APP_ID="org.omarchy.hop"
+SCRIPT_DIR=$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")" && pwd)
+STORE_READER="$SCRIPT_DIR/hop-read-store"
 
 die() {
   echo "hop: $1" >&2
@@ -23,39 +25,51 @@ die() {
 }
 
 command -v jq >/dev/null || die "jq is required"
+command -v python3 >/dev/null || die "python3 is required"
 
-ensure_store() {
+ensure_config_dir() {
+  [[ ! -L $CONFIG_DIR ]] || die "refusing symlink config path: $CONFIG_DIR"
   mkdir -p "$CONFIG_DIR"
+  [[ -d $CONFIG_DIR && ! -L $CONFIG_DIR ]] \
+    || die "refusing non-directory config path: $CONFIG_DIR"
   chmod 700 "$CONFIG_DIR" 2>/dev/null || true
-  if [[ ! -f $STORE ]]; then
-    printf '{"version":1,"hosts":[]}\n' >"$STORE"
-    chmod 600 "$STORE"
-  fi
+}
+
+# The long-lived QML process receives only JSON that this short-lived helper
+# has opened nonblocking and no-follow, descriptor-validated as a regular file,
+# size-capped, and parsed. A missing store is the normal empty-store case.
+read_store() {
+  python3 "$STORE_READER" "$STORE"
+}
+
+read_hosts() {
+  python3 "$STORE_READER" --hosts "$STORE"
 }
 
 # Every write lands through a temp file in the same directory so a crash
 # mid-write leaves the previous store intact rather than a truncated one.
 write_store() {
   local tmp
+  ensure_config_dir
   tmp=$(mktemp "$CONFIG_DIR/.hosts.XXXXXX")
   cat >"$tmp"
   chmod 600 "$tmp"
-  mv "$tmp" "$STORE"
+  # -T replaces a planted symlink-to-directory instead of treating it as the
+  # destination directory and moving the temporary file through the link.
+  mv -T "$tmp" "$STORE"
 }
 
 # ---- reading ---------------------------------------------------------------
 
 cmd_list() {
-  ensure_store
-  jq -c '.hosts // []' "$STORE"
+  read_hosts
 }
 
 # Accepts an id or a name, so the CLI stays typeable while the panel passes ids.
 resolve() {
   local key="$1"
-  ensure_store
-  jq -e --arg k "$key" \
-    'first((.hosts // [])[] | select(.id == $k or .name == $k))' "$STORE" 2>/dev/null \
+  read_store | jq -e --arg k "$key" \
+    'first(.hosts[] | select(.id == $k or .name == $k))' 2>/dev/null \
     || die "no such machine: $key"
 }
 
@@ -94,9 +108,9 @@ new_id() {
 }
 
 cmd_add() {
-  local fields
+  local fields store updated
   parse_fields "$@"
-  ensure_store
+  store=$(read_store)
 
   local host name id
   host=$(jq -r '.host // ""' <<<"$fields")
@@ -105,11 +119,12 @@ cmd_add() {
   [[ -n $name ]] || fields=$(jq -c --arg v "$host" '.name = $v' <<<"$fields")
   id=$(new_id)
 
-  jq --arg id "$id" --argjson f "$fields" \
+  updated=$(jq --arg id "$id" --argjson f "$fields" \
     '.hosts = ((.hosts // []) + [{
         id: $id, name: "", host: "", user: "", port: 22,
         identity: "", path: "", init: "", forwardAgent: false
-      } * $f])' "$STORE" | write_store
+      } * $f])' <<<"$store")
+  write_store <<<"$updated"
 
   echo "$id"
 }
@@ -117,23 +132,27 @@ cmd_add() {
 cmd_set() {
   [[ $# -ge 1 ]] || die "set needs an id"
   local id="$1"; shift
-  local fields
+  local fields store updated
   parse_fields "$@"
-  ensure_store
+  store=$(read_store)
 
-  jq -e --arg id "$id" 'any((.hosts // [])[]; .id == $id)' "$STORE" >/dev/null \
+  jq -e --arg id "$id" 'any(.hosts[]; .id == $id)' <<<"$store" >/dev/null \
     || die "no such machine: $id"
 
-  jq --arg id "$id" --argjson f "$fields" \
-    '.hosts = [(.hosts // [])[] | if .id == $id then . * $f else . end]' "$STORE" | write_store
+  updated=$(jq --arg id "$id" --argjson f "$fields" \
+    '.hosts = [.hosts[] | if .id == $id then . * $f else . end]' <<<"$store")
+  write_store <<<"$updated"
 }
 
 cmd_rm() {
   [[ $# -ge 1 ]] || die "rm needs an id or name"
-  local id
-  id=$(resolve "$1" | jq -r '.id')
-  ensure_store
-  jq --arg id "$id" '.hosts = [(.hosts // [])[] | select(.id != $id)]' "$STORE" | write_store
+  local id store updated
+  store=$(read_store)
+  id=$(jq -er --arg k "$1" \
+    'first(.hosts[] | select(.id == $k or .name == $k)) | .id' <<<"$store") \
+    || die "no such machine: $1"
+  updated=$(jq --arg id "$id" '.hosts = [.hosts[] | select(.id != $id)]' <<<"$store")
+  write_store <<<"$updated"
 }
 
 # ---- connecting ------------------------------------------------------------
