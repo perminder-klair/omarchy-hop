@@ -26,20 +26,52 @@ machine list is just hostnames.
 If you want passwordless logins, the answer is `ssh-copy-id`, not a plugin
 holding your password inside a long-lived desktop process.
 
+## Requirements
+
+Everything here ships with Omarchy; the list is for completeness.
+
+| | |
+|---|---|
+| `openssh` | The sessions. |
+| `jq` | The CLI reads and writes the store with it. |
+| `nautilus` + `gvfs` | Only for the Files button. Without them the rest still works. |
+
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/<you>/hop.git --enable
+omarchy plugin add https://github.com/perminder-klair/omarchy-hop.git --enable
 ```
 
-Or, working on it locally:
+Omarchy clones it to `~/.config/omarchy/plugins/co.klair.hop/` and asks before
+enabling it, so you can read the code first. Updating is a fast-forward pull:
 
 ```bash
-git clone https://github.com/<you>/hop.git ~/Projects/hop
+omarchy plugin update co.klair.hop
+```
+
+### Removing it
+
+```bash
+omarchy plugin remove co.klair.hop
+```
+
+That disables the plugin and deletes the checkout. Nothing else is touched —
+no system files, no units, no `~/.ssh`. Your machine list survives in
+`~/.config/hop/hosts.json`, so reinstalling picks up where you left off;
+delete that directory too if you want it gone.
+
+### Working on it locally
+
+```bash
+git clone https://github.com/perminder-klair/omarchy-hop.git ~/Projects/hop
 ln -s ~/Projects/hop ~/.config/omarchy/plugins/co.klair.hop
 omarchy-shell shell rescanPlugins
 omarchy plugin enable co.klair.hop right
 ```
+
+Editing a file under `~/.config/omarchy/plugins/` hot-reloads the plugin code,
+but an already-loaded panel instance is not rebuilt — run
+`omarchy-restart-shell` after changing `Panel.qml`.
 
 ## Using it
 
