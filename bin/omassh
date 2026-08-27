@@ -159,11 +159,17 @@ ssh_argv() {
   [[ $agent == true ]] && argv+=(-A)
   argv+=("${user:+$user@}$host")
 
-  # An init script means ssh runs a remote command, which skips the login
-  # shell entirely — so hand the session back with `exec $SHELL -l` instead
-  # of letting it exit the moment the script finishes.
+  # An init script means ssh runs a remote command, and ssh runs remote
+  # commands through a shell that is neither a login shell nor interactive.
+  # Nothing that builds PATH on the far side — /etc/profile, ~/.profile,
+  # ~/.bashrc, mise/asdf/nvm shims, ~/.local/bin — has run at that point, so a
+  # command that works fine when you log in by hand comes back as "command not
+  # found". Running the script through `$SHELL -lc` sources the same startup
+  # files an interactive login would, and the trailing exec hands the session
+  # over still carrying that PATH.
   if [[ -n $init && $init != "null" ]]; then
-    argv+=("$init"$'\n'"exec \"\$SHELL\" -l")
+    local esc=${init//\'/\'\\\'\'}
+    argv+=("exec \"\$SHELL\" -lc '$esc"$'\n'"exec \"\$SHELL\" -l'")
   fi
 
   printf '%s\0' "${argv[@]}"

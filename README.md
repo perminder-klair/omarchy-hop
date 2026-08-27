@@ -58,6 +58,20 @@ Click the 󰒋 icon in the bar. **Add machine** opens the form:
 In the list, the pencil edits a machine and the second icon copies the exact
 `ssh` command to your clipboard.
 
+### Startup scripts run in a login shell
+
+`ssh host "some-command"` normally runs that command in a shell that is
+neither a login shell nor interactive, so nothing on the far side that builds
+`PATH` — `/etc/profile`, `~/.profile`, `~/.bashrc`, mise/asdf/nvm shims,
+`~/.local/bin` — has run yet. Tools you use every day come back as
+`command not found`.
+
+Omassh runs your script through `$SHELL -lc` instead, so it sees the same
+environment an interactive login would, and the session you are handed
+afterwards inherits it. If something still is not found, it is genuinely
+missing from your login `PATH` on that machine — check with
+`omassh connect <name>` and `echo $PATH`.
+
 ## From the terminal
 
 Everything the panel does goes through `bin/omassh`, so it is all available
