@@ -52,11 +52,26 @@ Click the 󰒋 icon in the bar. **Add machine** opens the form:
 | User | Leave empty to let `ssh_config` decide. |
 | Port | 22 unless you say otherwise. |
 | Identity file | Optional `-i`. `~` is expanded. |
+| Initial path | Where sessions start: the terminal `cd`s here, and Files opens here. |
 | Startup script | Runs on arrival, then hands you a login shell. |
 | Forward ssh agent | `-A`. Off by default — only turn it on for machines you trust. |
 
-In the list, the pencil edits a machine and the second icon copies the exact
-`ssh` command to your clipboard.
+In the list, each machine carries three buttons: the folder opens it in Files
+over SFTP, the pencil edits it, and the last one copies the exact `ssh`
+command to your clipboard.
+
+### Browsing a machine in Files
+
+The folder button hands Nautilus an `sftp://` URL, so browsing is gvfs's job,
+not a mount this plugin manages. It gets its own connection and its own auth
+prompt — you can browse a machine without a terminal session open, and
+closing one does not disturb the other. gvfs ships with Omarchy, so there is
+nothing to install.
+
+gvfs does not expand `~` and cannot know what the remote home is, so with no
+initial path set Omassh sends `/home/<user>` (or `/root`, or `/` when no user
+is configured). Set **Initial path** on any machine where that guess is
+wrong — a NAS, a BSD box, a container.
 
 ### Startup scripts run in a login shell
 
@@ -82,6 +97,8 @@ omassh list
 omassh add --host 10.0.0.5 --name "Prod web" --user deploy --init 'cd /srv/app'
 omassh set <id> --port 2222
 omassh connect "Prod web"      # opens a terminal, same as clicking
+omassh files "Prod web"        # opens Files over SFTP
+omassh uri "Prod web"          # prints the sftp:// URL instead of opening it
 omassh command "Prod web"      # prints the ssh command instead of running it
 omassh rm "Prod web"
 ```
@@ -95,6 +112,7 @@ The shell exposes an IPC target, so a machine is one hotkey away:
 
 ```
 bindd = SUPER SHIFT, S, Prod web, exec, omarchy-shell omassh connect "Prod web"
+bindd = SUPER SHIFT, F, Prod web files, exec, omarchy-shell omassh files "Prod web"
 ```
 
 ## Window rules

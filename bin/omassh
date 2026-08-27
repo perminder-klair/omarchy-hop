@@ -77,6 +77,7 @@ parse_fields() {
     --user) fields=$(jq -c --arg v "$2" '.user = $v' <<<"$fields"); shift 2 ;;
     --port) fields=$(jq -c --argjson v "${2:-0}" '.port = $v' <<<"$fields"); shift 2 ;;
     --identity) fields=$(jq -c --arg v "$2" '.identity = $v' <<<"$fields"); shift 2 ;;
+    --path) fields=$(jq -c --arg v "$2" '.path = $v' <<<"$fields"); shift 2 ;;
     --init) fields=$(jq -c --arg v "$2" '.init = $v' <<<"$fields"); shift 2 ;;
     --init-file)
       [[ -r ${2:-} ]] || die "cannot read $2"
@@ -107,7 +108,7 @@ cmd_add() {
   jq --arg id "$id" --argjson f "$fields" \
     '.hosts = ((.hosts // []) + [{
         id: $id, name: "", host: "", user: "", port: 22,
-        identity: "", init: "", forwardAgent: false
+        identity: "", path: "", init: "", forwardAgent: false
       } * $f])' "$STORE" | write_store
 
   echo "$id"
@@ -137,15 +138,22 @@ cmd_rm() {
 
 # ---- connecting ------------------------------------------------------------
 
+# POSIX single-quoting, so a path or script carrying quotes, spaces or $ still
+# arrives on the far side as the bytes the user typed.
+sq() {
+  printf "'%s'" "${1//\'/\'\\\'\'}"
+}
+
 # Builds the ssh argv for a machine and prints it NUL-separated, so an init
 # script containing newlines survives being read back.
 ssh_argv() {
   local entry="$1"
-  local host user port identity init agent
+  local host user port identity path init agent
   host=$(jq -r '.host // ""' <<<"$entry")
   user=$(jq -r '.user // ""' <<<"$entry")
   port=$(jq -r '.port // 22' <<<"$entry")
   identity=$(jq -r '.identity // ""' <<<"$entry")
+  path=$(jq -r '.path // ""' <<<"$entry")
   init=$(jq -r '.init // ""' <<<"$entry")
   agent=$(jq -r '.forwardAgent // false' <<<"$entry")
 
@@ -159,20 +167,82 @@ ssh_argv() {
   [[ $agent == true ]] && argv+=(-A)
   argv+=("${user:+$user@}$host")
 
-  # An init script means ssh runs a remote command, and ssh runs remote
-  # commands through a shell that is neither a login shell nor interactive.
-  # Nothing that builds PATH on the far side — /etc/profile, ~/.profile,
-  # ~/.bashrc, mise/asdf/nvm shims, ~/.local/bin — has run at that point, so a
-  # command that works fine when you log in by hand comes back as "command not
-  # found". Running the script through `$SHELL -lc` sources the same startup
-  # files an interactive login would, and the trailing exec hands the session
-  # over still carrying that PATH.
-  if [[ -n $init && $init != "null" ]]; then
-    local esc=${init//\'/\'\\\'\'}
-    argv+=("exec \"\$SHELL\" -lc '$esc"$'\n'"exec \"\$SHELL\" -l'")
+  # An initial path and a startup script are the same thing to ssh: a remote
+  # command. And ssh runs remote commands through a shell that is neither a
+  # login shell nor interactive, so nothing that builds PATH on the far side —
+  # /etc/profile, ~/.profile, ~/.bashrc, mise/asdf/nvm shims, ~/.local/bin —
+  # has run at that point, and a command that works fine when you log in by
+  # hand comes back as "command not found". Running the script through
+  # `$SHELL -lc` sources the same startup files an interactive login would,
+  # and the trailing exec hands the session over still carrying that PATH.
+  local script=""
+  [[ -n $path && $path != "null" ]] && script+="cd $(sq "$path") || exit 1"$'\n'
+  [[ -n $init && $init != "null" ]] && script+="$init"$'\n'
+  if [[ -n $script ]]; then
+    argv+=("exec \"\$SHELL\" -lc $(sq "${script}exec \"\$SHELL\" -l")")
   fi
 
   printf '%s\0' "${argv[@]}"
+}
+
+# gvfs speaks sftp:// natively, which is why this opens a URI rather than
+# mounting anything: Files does the connecting, and it reuses a mount that is
+# already up instead of making a second one.
+files_uri() {
+  local entry="$1"
+  local host user port path
+  host=$(jq -r '.host // ""' <<<"$entry")
+  user=$(jq -r '.user // ""' <<<"$entry")
+  port=$(jq -r '.port // 22' <<<"$entry")
+  path=$(jq -r '.path // ""' <<<"$entry")
+
+  [[ -n $host ]] || die "machine has no host"
+
+  # gvfs does not expand ~ and has no idea what the remote home is, so an
+  # empty path lands you at / every time. The login user's home is the right
+  # guess almost everywhere; the initial path is there for the machines where
+  # it is not.
+  if [[ -z $path || $path == "null" ]]; then
+    case "$user" in
+    "") path="/" ;;
+    root) path="/root" ;;
+    *) path="/home/$user" ;;
+    esac
+  fi
+  [[ $path == /* ]] || path="/$path"
+  # Per segment, so the separators survive and a folder with a space does too.
+  path=$(jq -rn --arg p "$path" '[$p | split("/")[] | @uri] | join("/")')
+
+  local authority="$host"
+  [[ -n $user && $user != "null" ]] && authority="$user@$authority"
+  [[ -n $port && $port != "null" && $port != 22 && $port != 0 ]] && authority="$authority:$port"
+
+  printf 'sftp://%s%s\n' "$authority" "$path"
+}
+
+cmd_uri() {
+  [[ $# -ge 1 ]] || die "uri needs an id or name"
+  files_uri "$(resolve "$1")"
+}
+
+cmd_files() {
+  [[ $# -ge 1 ]] || die "files needs an id or name"
+  local uri
+  uri=$(files_uri "$(resolve "$1")")
+
+  # Nothing is registered for x-scheme-handler/sftp on a stock install, so
+  # xdg-open would fail on the URI — go to the file manager directly and keep
+  # xdg-open as the fallback for desktops that do register one.
+  local -a launcher=()
+  command -v uwsm-app >/dev/null && launcher=(uwsm-app --)
+
+  if command -v nautilus >/dev/null; then
+    exec setsid "${launcher[@]}" nautilus --new-window "$uri"
+  elif command -v xdg-open >/dev/null; then
+    exec setsid xdg-open "$uri"
+  else
+    die "no file manager found"
+  fi
 }
 
 cmd_command() {
@@ -213,6 +283,8 @@ omassh — SSH machines in the Omarchy bar
   omassh set <id> [flags]           change only the flags you pass
   omassh rm <id|name>               forget a machine
   omassh connect <id|name>          open a session in the default terminal
+  omassh files <id|name>            browse the machine in Files over SFTP
+  omassh uri <id|name>              print the sftp:// URL instead of opening it
   omassh command <id|name>          print the ssh command that would run
 
 Flags for add/set:
@@ -221,6 +293,8 @@ Flags for add/set:
   --user U          remote user (omit to let ssh_config decide)
   --port P          port (default 22)
   --identity F      private key file
+  --path P          where sessions start: the terminal cds here and Files
+                    opens here (default: the login user's home)
   --init S          shell snippet to run on arrival
   --init-file F     same, read from a file
   --agent/--no-agent   forward your ssh agent
@@ -236,6 +310,8 @@ add) shift; cmd_add "$@" ;;
 set) shift; cmd_set "$@" ;;
 rm | remove) shift; cmd_rm "$@" ;;
 connect | open) shift; cmd_connect "$@" ;;
+files | browse) shift; cmd_files "$@" ;;
+uri) shift; cmd_uri "$@" ;;
 command | cmd) shift; cmd_command "$@" ;;
 -h | --help | help | "") usage ;;
 *) die "unknown command: $1" ;;

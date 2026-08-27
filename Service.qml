@@ -58,6 +58,7 @@ Item {
     if (fields.user !== undefined) argv.push("--user", String(fields.user))
     if (fields.port !== undefined) argv.push("--port", String(Number(fields.port) || 22))
     if (fields.identity !== undefined) argv.push("--identity", String(fields.identity))
+    if (fields.path !== undefined) argv.push("--path", String(fields.path))
     if (fields.init !== undefined) argv.push("--init", String(fields.init))
     if (fields.forwardAgent !== undefined) argv.push(fields.forwardAgent ? "--agent" : "--no-agent")
     return argv
@@ -91,6 +92,18 @@ Item {
     root.lastConnected = String(entry.name || entry.host)
     connectProc.command = [root.ctl, "connect", String(id)]
     connectProc.running = true
+    return true
+  }
+
+  // Files opens the same machine over SFTP. Deliberately a separate process
+  // from connect(): gvfs holds its own connection and its own auth prompt, so
+  // browsing does not depend on a terminal session being up, or vice versa.
+  function browse(id) {
+    var entry = root.hostById(id)
+    if (!entry) return false
+    root.lastError = ""
+    filesProc.command = [root.ctl, "files", String(id)]
+    filesProc.running = true
     return true
   }
 
@@ -136,6 +149,18 @@ Item {
     }
   }
 
+  Process {
+    id: filesProc
+    running: false
+    stderr: StdioCollector {
+      waitForEnd: true
+      onStreamFinished: {
+        var line = String(text).trim()
+        if (line !== "") root.lastError = line.replace(/^omassh: /, "")
+      }
+    }
+  }
+
   // The store is editable by hand, by the CLI, and by this panel, so the
   // list is re-read rather than assumed. FileView alone is not enough: every
   // write lands as an atomic rename, which replaces the inode the watcher is
@@ -171,6 +196,12 @@ Item {
       connectProc.command = [root.ctl, "connect", name]
       connectProc.running = true
       return "connecting to " + name
+    }
+
+    function files(name: string): string {
+      filesProc.command = [root.ctl, "files", name]
+      filesProc.running = true
+      return "browsing " + name
     }
 
     function list(): string {

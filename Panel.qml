@@ -43,6 +43,7 @@ Panel {
   property string fUser: ""
   property string fPort: "22"
   property string fIdentity: ""
+  property string fPath: ""
   property string fInit: ""
   property bool fAgent: false
 
@@ -66,6 +67,12 @@ Panel {
     root.close()
   }
 
+  function browseTo(id) {
+    if (!service) return
+    service.browse(id)
+    root.close()
+  }
+
   function startAdd() {
     root.editId = ""
     root.fName = ""
@@ -73,6 +80,7 @@ Panel {
     root.fUser = ""
     root.fPort = "22"
     root.fIdentity = ""
+    root.fPath = ""
     root.fInit = ""
     root.fAgent = false
     root.confirmingDelete = false
@@ -86,6 +94,7 @@ Panel {
     root.fUser = String(entry.user || "")
     root.fPort = String(entry.port || 22)
     root.fIdentity = String(entry.identity || "")
+    root.fPath = String(entry.path || "")
     root.fInit = String(entry.init || "")
     root.fAgent = entry.forwardAgent === true
     root.confirmingDelete = false
@@ -105,6 +114,7 @@ Panel {
       user: root.fUser.trim(),
       port: Number(root.fPort) || 22,
       identity: root.fIdentity.trim(),
+      path: root.fPath.trim(),
       init: root.fInit,
       forwardAgent: root.fAgent
     })
@@ -132,6 +142,7 @@ Panel {
     var target = (entry.user ? entry.user + "@" : "") + (entry.host || "")
     var port = Number(entry.port) || 22
     if (port !== 22) target += ":" + port
+    if (entry.path && String(entry.path).trim() !== "") target += "  ·  " + entry.path
     if (entry.init && String(entry.init).trim() !== "") target += "  ·  startup script"
     return target
   }
@@ -189,6 +200,15 @@ Panel {
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
         }
+      }
+
+      PanelActionButton {
+        iconText: "󰉋"
+        tooltipText: "Browse files over SFTP"
+        foreground: Qt.darker(root.barForeground, 1.6)
+        hoverColor: Color.accent
+        fontSize: Style.font.caption
+        onClicked: root.browseTo(hostRow.entry.id)
       }
 
       PanelActionButton {
@@ -392,6 +412,29 @@ Panel {
             onTextChanged: root.fIdentity = text
             Keys.onEscapePressed: root.cancelForm()
           }
+        }
+
+        FormRow {
+          visible: root.mode === "form"
+          label: "Initial path"
+          TextField {
+            Layout.fillWidth: true
+            placeholderText: "/srv/app — defaults to the user's home"
+            foreground: root.barForeground
+            text: root.fPath
+            onTextChanged: root.fPath = text
+            Keys.onEscapePressed: root.cancelForm()
+          }
+        }
+
+        Text {
+          Layout.fillWidth: true
+          visible: root.mode === "form"
+          text: "Where sessions start: the terminal cds here, and Files opens here."
+          color: Qt.darker(root.barForeground, 1.7)
+          wrapMode: Text.WordWrap
+          font.family: Style.font.family
+          font.pixelSize: Style.font.caption
         }
 
         FormRow {
