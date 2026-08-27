@@ -1,0 +1,236 @@
+#!/bin/bash
+#
+# omassh — manage the SSH machines the Omassh bar plugin offers, and open
+# sessions to them in the default Omarchy terminal.
+#
+# The plugin panel is a front-end for this script: the QML never touches the
+# store or builds an ssh command itself, so anything the bar can do is
+# available from a keybinding, a script, or another terminal.
+#
+# No password is ever stored. ssh prompts in the terminal it opens, exactly
+# as it would if you had typed the command yourself, so keys, agents,
+# ProxyJump and everything else in ~/.ssh/config keep working.
+
+set -euo pipefail
+
+CONFIG_DIR="${OMASSH_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/omassh}"
+STORE="$CONFIG_DIR/hosts.json"
+APP_ID="org.omarchy.omassh"
+
+die() {
+  echo "omassh: $1" >&2
+  exit 1
+}
+
+command -v jq >/dev/null || die "jq is required"
+
+ensure_store() {
+  mkdir -p "$CONFIG_DIR"
+  chmod 700 "$CONFIG_DIR" 2>/dev/null || true
+  if [[ ! -f $STORE ]]; then
+    printf '{"version":1,"hosts":[]}\n' >"$STORE"
+    chmod 600 "$STORE"
+  fi
+}
+
+# Every write lands through a temp file in the same directory so a crash
+# mid-write leaves the previous store intact rather than a truncated one.
+write_store() {
+  local tmp
+  tmp=$(mktemp "$CONFIG_DIR/.hosts.XXXXXX")
+  cat >"$tmp"
+  chmod 600 "$tmp"
+  mv "$tmp" "$STORE"
+}
+
+# ---- reading ---------------------------------------------------------------
+
+cmd_list() {
+  ensure_store
+  jq -c '.hosts // []' "$STORE"
+}
+
+# Accepts an id or a name, so the CLI stays typeable while the panel passes ids.
+resolve() {
+  local key="$1"
+  ensure_store
+  jq -e --arg k "$key" \
+    'first((.hosts // [])[] | select(.id == $k or .name == $k))' "$STORE" 2>/dev/null \
+    || die "no such machine: $key"
+}
+
+cmd_show() {
+  [[ $# -ge 1 ]] || die "show needs an id or name"
+  resolve "$1"
+}
+
+# ---- writing ---------------------------------------------------------------
+
+# Shared flag parser for add and set. Only the flags actually passed end up in
+# $fields, so `set` can change one value without the caller restating the rest.
+parse_fields() {
+  fields='{}'
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+    --name) fields=$(jq -c --arg v "$2" '.name = $v' <<<"$fields"); shift 2 ;;
+    --host) fields=$(jq -c --arg v "$2" '.host = $v' <<<"$fields"); shift 2 ;;
+    --user) fields=$(jq -c --arg v "$2" '.user = $v' <<<"$fields"); shift 2 ;;
+    --port) fields=$(jq -c --argjson v "${2:-0}" '.port = $v' <<<"$fields"); shift 2 ;;
+    --identity) fields=$(jq -c --arg v "$2" '.identity = $v' <<<"$fields"); shift 2 ;;
+    --init) fields=$(jq -c --arg v "$2" '.init = $v' <<<"$fields"); shift 2 ;;
+    --init-file)
+      [[ -r ${2:-} ]] || die "cannot read $2"
+      fields=$(jq -c --rawfile v "$2" '.init = $v' <<<"$fields"); shift 2 ;;
+    --agent) fields=$(jq -c '.forwardAgent = true' <<<"$fields"); shift ;;
+    --no-agent) fields=$(jq -c '.forwardAgent = false' <<<"$fields"); shift ;;
+    *) die "unknown flag: $1" ;;
+    esac
+  done
+}
+
+new_id() {
+  printf 'h%s%04d' "$(date +%s)" "$((RANDOM % 10000))"
+}
+
+cmd_add() {
+  local fields
+  parse_fields "$@"
+  ensure_store
+
+  local host name id
+  host=$(jq -r '.host // ""' <<<"$fields")
+  [[ -n $host ]] || die "add needs --host"
+  name=$(jq -r '.name // ""' <<<"$fields")
+  [[ -n $name ]] || fields=$(jq -c --arg v "$host" '.name = $v' <<<"$fields")
+  id=$(new_id)
+
+  jq --arg id "$id" --argjson f "$fields" \
+    '.hosts = ((.hosts // []) + [{
+        id: $id, name: "", host: "", user: "", port: 22,
+        identity: "", init: "", forwardAgent: false
+      } * $f])' "$STORE" | write_store
+
+  echo "$id"
+}
+
+cmd_set() {
+  [[ $# -ge 1 ]] || die "set needs an id"
+  local id="$1"; shift
+  local fields
+  parse_fields "$@"
+  ensure_store
+
+  jq -e --arg id "$id" 'any((.hosts // [])[]; .id == $id)' "$STORE" >/dev/null \
+    || die "no such machine: $id"
+
+  jq --arg id "$id" --argjson f "$fields" \
+    '.hosts = [(.hosts // [])[] | if .id == $id then . * $f else . end]' "$STORE" | write_store
+}
+
+cmd_rm() {
+  [[ $# -ge 1 ]] || die "rm needs an id or name"
+  local id
+  id=$(resolve "$1" | jq -r '.id')
+  ensure_store
+  jq --arg id "$id" '.hosts = [(.hosts // [])[] | select(.id != $id)]' "$STORE" | write_store
+}
+
+# ---- connecting ------------------------------------------------------------
+
+# Builds the ssh argv for a machine and prints it NUL-separated, so an init
+# script containing newlines survives being read back.
+ssh_argv() {
+  local entry="$1"
+  local host user port identity init agent
+  host=$(jq -r '.host // ""' <<<"$entry")
+  user=$(jq -r '.user // ""' <<<"$entry")
+  port=$(jq -r '.port // 22' <<<"$entry")
+  identity=$(jq -r '.identity // ""' <<<"$entry")
+  init=$(jq -r '.init // ""' <<<"$entry")
+  agent=$(jq -r '.forwardAgent // false' <<<"$entry")
+
+  [[ -n $host ]] || die "machine has no host"
+
+  local -a argv=(ssh -t)
+  # -t is unconditional: without a forced tty an init script turns the
+  # session into a non-interactive pipe and nothing you type afterwards works.
+  [[ -n $port && $port != "null" && $port != 22 && $port != 0 ]] && argv+=(-p "$port")
+  [[ -n $identity && $identity != "null" ]] && argv+=(-i "${identity/#\~/$HOME}")
+  [[ $agent == true ]] && argv+=(-A)
+  argv+=("${user:+$user@}$host")
+
+  # An init script means ssh runs a remote command, which skips the login
+  # shell entirely — so hand the session back with `exec $SHELL -l` instead
+  # of letting it exit the moment the script finishes.
+  if [[ -n $init && $init != "null" ]]; then
+    argv+=("$init"$'\n'"exec \"\$SHELL\" -l")
+  fi
+
+  printf '%s\0' "${argv[@]}"
+}
+
+cmd_command() {
+  [[ $# -ge 1 ]] || die "command needs an id or name"
+  local -a argv=()
+  mapfile -d '' -t argv < <(ssh_argv "$(resolve "$1")")
+  printf '%q ' "${argv[@]}"
+  echo
+}
+
+cmd_connect() {
+  [[ $# -ge 1 ]] || die "connect needs an id or name"
+  local entry name
+  entry=$(resolve "$1")
+  name=$(jq -r '.name // .host' <<<"$entry")
+
+  local -a argv=()
+  mapfile -d '' -t argv < <(ssh_argv "$entry")
+
+  # omarchy-launch-tui is the supported way to reach the terminal the user
+  # actually chose; the fallback keeps this script usable on a plain desktop.
+  if command -v omarchy-launch-tui >/dev/null; then
+    exec omarchy-launch-tui "--app-id=$APP_ID" "${argv[@]}"
+  elif command -v xdg-terminal-exec >/dev/null; then
+    exec setsid xdg-terminal-exec "--app-id=$APP_ID" -e "${argv[@]}"
+  else
+    die "no terminal launcher found (omarchy-launch-tui or xdg-terminal-exec)"
+  fi
+}
+
+usage() {
+  cat <<'USAGE'
+omassh — SSH machines in the Omarchy bar
+
+  omassh list                       every saved machine as JSON
+  omassh show <id|name>             one machine as JSON
+  omassh add --host H [flags]       add a machine, prints its id
+  omassh set <id> [flags]           change only the flags you pass
+  omassh rm <id|name>               forget a machine
+  omassh connect <id|name>          open a session in the default terminal
+  omassh command <id|name>          print the ssh command that would run
+
+Flags for add/set:
+  --name N          label shown in the bar (defaults to the host)
+  --host H          hostname, IP, or a Host alias from ~/.ssh/config
+  --user U          remote user (omit to let ssh_config decide)
+  --port P          port (default 22)
+  --identity F      private key file
+  --init S          shell snippet to run on arrival
+  --init-file F     same, read from a file
+  --agent/--no-agent   forward your ssh agent
+
+Passwords are never stored: ssh prompts in the terminal it opens.
+USAGE
+}
+
+case "${1:-}" in
+list) shift; cmd_list "$@" ;;
+show) shift; cmd_show "$@" ;;
+add) shift; cmd_add "$@" ;;
+set) shift; cmd_set "$@" ;;
+rm | remove) shift; cmd_rm "$@" ;;
+connect | open) shift; cmd_connect "$@" ;;
+command | cmd) shift; cmd_command "$@" ;;
+-h | --help | help | "") usage ;;
+*) die "unknown command: $1" ;;
+esac

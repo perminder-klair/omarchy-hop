@@ -1,0 +1,37 @@
+{
+  "schemaVersion": 1,
+  "id": "co.klair.omassh",
+  "name": "Omassh",
+  "version": "0.1.0",
+  "author": "Parminder Klair",
+  "license": "MIT",
+  "description": "Keep your SSH machines in the bar. Pick one and it opens in your default Omarchy terminal, runs the startup script you gave it, and leaves you in an interactive shell.",
+  "kinds": [
+    "service",
+    "bar-widget"
+  ],
+  "keepLoaded": true,
+  "entryPoints": {
+    "service": "Service.qml",
+    "barWidget": "BarWidget.qml"
+  },
+  "barWidget": {
+    "displayName": "Omassh",
+    "description": "Bar icon listing your saved SSH machines; click one to open a session in the default terminal.",
+    "category": "System",
+    "defaultSection": "right",
+    "allowMultiple": false,
+    "defaults": {
+      "showCount": false
+    },
+    "schema": [
+      {
+        "key": "showCount",
+        "type": "boolean",
+        "label": "Show the number of saved machines next to the icon",
+        "defaultValue": false,
+        "description": "Machines are stored in ~/.config/omassh/hosts.json and can also be managed with the omassh CLI."
+      }
+    ]
+  }
+}
