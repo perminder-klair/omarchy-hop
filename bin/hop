@@ -1,6 +1,6 @@
 #!/bin/bash
 #
-# omassh — manage the SSH machines the Omassh bar plugin offers, and open
+# hop — manage the SSH machines the Hop bar plugin offers, and open
 # sessions to them in the default Omarchy terminal.
 #
 # The plugin panel is a front-end for this script: the QML never touches the
@@ -13,12 +13,12 @@
 
 set -euo pipefail
 
-CONFIG_DIR="${OMASSH_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/omassh}"
+CONFIG_DIR="${HOP_CONFIG_DIR:-${XDG_CONFIG_HOME:-$HOME/.config}/hop}"
 STORE="$CONFIG_DIR/hosts.json"
-APP_ID="org.omarchy.omassh"
+APP_ID="org.omarchy.hop"
 
 die() {
-  echo "omassh: $1" >&2
+  echo "hop: $1" >&2
   exit 1
 }
 
@@ -275,17 +275,17 @@ cmd_connect() {
 
 usage() {
   cat <<'USAGE'
-omassh — SSH machines in the Omarchy bar
+hop — SSH machines in the Omarchy bar
 
-  omassh list                       every saved machine as JSON
-  omassh show <id|name>             one machine as JSON
-  omassh add --host H [flags]       add a machine, prints its id
-  omassh set <id> [flags]           change only the flags you pass
-  omassh rm <id|name>               forget a machine
-  omassh connect <id|name>          open a session in the default terminal
-  omassh files <id|name>            browse the machine in Files over SFTP
-  omassh uri <id|name>              print the sftp:// URL instead of opening it
-  omassh command <id|name>          print the ssh command that would run
+  hop list                       every saved machine as JSON
+  hop show <id|name>             one machine as JSON
+  hop add --host H [flags]       add a machine, prints its id
+  hop set <id> [flags]           change only the flags you pass
+  hop rm <id|name>               forget a machine
+  hop connect <id|name>          open a session in the default terminal
+  hop files <id|name>            browse the machine in Files over SFTP
+  hop uri <id|name>              print the sftp:// URL instead of opening it
+  hop command <id|name>          print the ssh command that would run
 
 Flags for add/set:
   --name N          label shown in the bar (defaults to the host)

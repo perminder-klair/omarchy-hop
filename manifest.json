@@ -1,7 +1,7 @@
 {
   "schemaVersion": 1,
-  "id": "co.klair.omassh",
-  "name": "Omassh",
+  "id": "co.klair.hop",
+  "name": "Hop",
   "version": "0.1.0",
   "author": "Parminder Klair",
   "license": "MIT",
@@ -16,7 +16,7 @@
     "barWidget": "BarWidget.qml"
   },
   "barWidget": {
-    "displayName": "Omassh",
+    "displayName": "Hop",
     "description": "Bar icon listing your saved SSH machines; click one to open a session in the default terminal.",
     "category": "System",
     "defaultSection": "right",
@@ -30,7 +30,7 @@
         "type": "boolean",
         "label": "Show the number of saved machines next to the icon",
         "defaultValue": false,
-        "description": "Machines are stored in ~/.config/omassh/hosts.json and can also be managed with the omassh CLI."
+        "description": "Machines are stored in ~/.config/hop/hosts.json and can also be managed with the hop CLI."
       }
     ]
   }

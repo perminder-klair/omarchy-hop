@@ -3,16 +3,16 @@ import Quickshell
 import qs.Commons
 import qs.Ui
 
-// The bar half of Omassh: one icon that opens the machine list.
+// The bar half of Hop: one icon that opens the machine list.
 //
 // There is no connection state to show — a session lives in a terminal
 // window the user can see, not in this process — so the icon only reflects
 // whether there is anything saved to connect to.
 BarWidget {
   id: root
-  moduleName: "co.klair.omassh"
+  moduleName: "co.klair.hop"
 
-  readonly property var service: bar?.shell?.serviceFor("co.klair.omassh")
+  readonly property var service: bar?.shell?.serviceFor("co.klair.hop")
   readonly property int hostCount: service ? service.count : 0
   readonly property bool showCount: setting("showCount", false)
 

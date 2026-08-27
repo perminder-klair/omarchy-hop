@@ -6,7 +6,7 @@ import Quickshell.Io
 import qs.Commons
 import qs.Ui
 
-// The Omassh panel: a list of machines, and the form that edits one.
+// The Hop panel: a list of machines, and the form that edits one.
 //
 // Two modes in one popup rather than a separate editor window — adding a
 // machine is a thing you do once per machine and then never again, so it
@@ -14,12 +14,12 @@ import qs.Ui
 // startup script, which is why the form replaces the list instead of
 // unfolding under it.
 //
-// Clicking a machine hands off to `omassh connect` and closes: the session
+// Clicking a machine hands off to `hop connect` and closes: the session
 // belongs to the terminal it opens, not to this panel.
 Panel {
   id: root
-  moduleName: "co.klair.omassh"
-  ipcTarget: "co.klair.omassh"
+  moduleName: "co.klair.hop"
+  ipcTarget: "co.klair.hop"
   manageIpc: true
 
   property var anchorItem: null

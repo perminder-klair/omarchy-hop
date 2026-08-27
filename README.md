@@ -1,4 +1,4 @@
-# Omassh
+# Hop
 
 Your SSH machines, in the Omarchy bar. Pick one and it opens in your default
 terminal, runs the startup script you gave it, and leaves you at a prompt.
@@ -13,7 +13,7 @@ terminal, runs the startup script you gave it, and leaves you at a prompt.
   whatever). When it finishes you are dropped into a normal login shell
   rather than disconnected.
 - Adding, editing and removing machines happens in the panel, or from the
-  `omassh` CLI, or by editing one JSON file.
+  `hop` CLI, or by editing one JSON file.
 
 ## What it deliberately does not do
 
@@ -29,16 +29,16 @@ holding your password inside a long-lived desktop process.
 ## Install
 
 ```bash
-omarchy plugin add https://github.com/<you>/omassh.git --enable
+omarchy plugin add https://github.com/<you>/hop.git --enable
 ```
 
 Or, working on it locally:
 
 ```bash
-git clone https://github.com/<you>/omassh.git ~/Projects/omassh
-ln -s ~/Projects/omassh ~/.config/omarchy/plugins/co.klair.omassh
+git clone https://github.com/<you>/hop.git ~/Projects/hop
+ln -s ~/Projects/hop ~/.config/omarchy/plugins/co.klair.hop
 omarchy-shell shell rescanPlugins
-omarchy plugin enable co.klair.omassh right
+omarchy plugin enable co.klair.hop right
 ```
 
 ## Using it
@@ -69,7 +69,7 @@ closing one does not disturb the other. gvfs ships with Omarchy, so there is
 nothing to install.
 
 gvfs does not expand `~` and cannot know what the remote home is, so with no
-initial path set Omassh sends `/home/<user>` (or `/root`, or `/` when no user
+initial path set Hop sends `/home/<user>` (or `/root`, or `/` when no user
 is configured). Set **Initial path** on any machine where that guess is
 wrong — a NAS, a BSD box, a container.
 
@@ -81,26 +81,26 @@ neither a login shell nor interactive, so nothing on the far side that builds
 `~/.local/bin` — has run yet. Tools you use every day come back as
 `command not found`.
 
-Omassh runs your script through `$SHELL -lc` instead, so it sees the same
+Hop runs your script through `$SHELL -lc` instead, so it sees the same
 environment an interactive login would, and the session you are handed
 afterwards inherits it. If something still is not found, it is genuinely
 missing from your login `PATH` on that machine — check with
-`omassh connect <name>` and `echo $PATH`.
+`hop connect <name>` and `echo $PATH`.
 
 ## From the terminal
 
-Everything the panel does goes through `bin/omassh`, so it is all available
+Everything the panel does goes through `bin/hop`, so it is all available
 without the bar:
 
 ```bash
-omassh list
-omassh add --host 10.0.0.5 --name "Prod web" --user deploy --init 'cd /srv/app'
-omassh set <id> --port 2222
-omassh connect "Prod web"      # opens a terminal, same as clicking
-omassh files "Prod web"        # opens Files over SFTP
-omassh uri "Prod web"          # prints the sftp:// URL instead of opening it
-omassh command "Prod web"      # prints the ssh command instead of running it
-omassh rm "Prod web"
+hop list
+hop add --host 10.0.0.5 --name "Prod web" --user deploy --init 'cd /srv/app'
+hop set <id> --port 2222
+hop connect "Prod web"      # opens a terminal, same as clicking
+hop files "Prod web"        # opens Files over SFTP
+hop uri "Prod web"          # prints the sftp:// URL instead of opening it
+hop command "Prod web"      # prints the ssh command instead of running it
+hop rm "Prod web"
 ```
 
 `--init-file some-script.sh` is there for startup scripts long enough that you
@@ -111,25 +111,25 @@ would rather keep them in a file.
 The shell exposes an IPC target, so a machine is one hotkey away:
 
 ```
-bindd = SUPER SHIFT, S, Prod web, exec, omarchy-shell omassh connect "Prod web"
-bindd = SUPER SHIFT, F, Prod web files, exec, omarchy-shell omassh files "Prod web"
+bindd = SUPER SHIFT, S, Prod web, exec, omarchy-shell hop connect "Prod web"
+bindd = SUPER SHIFT, F, Prod web files, exec, omarchy-shell hop files "Prod web"
 ```
 
 ## Window rules
 
-Sessions launch with app-id `org.omarchy.omassh`, so Hyprland can treat them
+Sessions launch with app-id `org.omarchy.hop`, so Hyprland can treat them
 differently from an ordinary terminal:
 
 ```
-windowrule = workspace 4, class:^(org\.omarchy\.omassh)$
+windowrule = workspace 4, class:^(org\.omarchy\.hop)$
 ```
 
 ## Where things live
 
 | Path | What |
 |------|------|
-| `~/.config/omassh/hosts.json` | The machine list. Plain JSON, safe to edit or sync. |
-| `bin/omassh` | The CLI the panel drives. |
+| `~/.config/hop/hosts.json` | The machine list. Plain JSON, safe to edit or sync. |
+| `bin/hop` | The CLI the panel drives. |
 
 The store holds no secrets, but it is created `0600` inside a `0700`
 directory anyway — a list of which machines you have and who you log in as is

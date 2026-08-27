@@ -2,14 +2,14 @@ import QtQuick
 import Quickshell
 import Quickshell.Io
 
-// Headless half of Omassh: owns the machine list and opens sessions.
+// Headless half of Hop: owns the machine list and opens sessions.
 //
-// The store is a plain JSON file managed by bin/omassh, not by this file.
+// The store is a plain JSON file managed by bin/hop, not by this file.
 // Keeping every write behind the CLI means the panel, a keybinding and a
 // terminal all mutate the same thing the same way, and the shell process
 // never has to be the authority on what a valid entry looks like.
 //
-// Nothing here holds a password. `omassh connect` hands ssh a real tty in
+// Nothing here holds a password. `hop connect` hands ssh a real tty in
 // the user's own terminal, so authentication happens where it always did.
 Item {
   id: root
@@ -19,8 +19,8 @@ Item {
   property var manifest: null
 
   readonly property string pluginDir: Qt.resolvedUrl(".").toString().replace(/^file:\/\//, "")
-  readonly property string ctl: pluginDir + "bin/omassh"
-  readonly property string configDir: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/omassh"
+  readonly property string ctl: pluginDir + "bin/hop"
+  readonly property string configDir: (Quickshell.env("XDG_CONFIG_HOME") || (Quickshell.env("HOME") + "/.config")) + "/hop"
   readonly property string storePath: configDir + "/hosts.json"
 
   // ---- live state, read by BarWidget.qml and Panel.qml -------------------
@@ -131,7 +131,7 @@ Item {
       waitForEnd: true
       onStreamFinished: {
         var line = String(text).trim()
-        if (line !== "") root.lastError = line.replace(/^omassh: /, "")
+        if (line !== "") root.lastError = line.replace(/^hop: /, "")
       }
     }
     onExited: root.refresh()
@@ -144,7 +144,7 @@ Item {
       waitForEnd: true
       onStreamFinished: {
         var line = String(text).trim()
-        if (line !== "") root.lastError = line.replace(/^omassh: /, "")
+        if (line !== "") root.lastError = line.replace(/^hop: /, "")
       }
     }
   }
@@ -156,7 +156,7 @@ Item {
       waitForEnd: true
       onStreamFinished: {
         var line = String(text).trim()
-        if (line !== "") root.lastError = line.replace(/^omassh: /, "")
+        if (line !== "") root.lastError = line.replace(/^hop: /, "")
       }
     }
   }
@@ -164,7 +164,7 @@ Item {
   // The store is editable by hand, by the CLI, and by this panel, so the
   // list is re-read rather than assumed. FileView alone is not enough: every
   // write lands as an atomic rename, which replaces the inode the watcher is
-  // holding, so a hand edit would be seen and a `omassh add` would not. The
+  // holding, so a hand edit would be seen and a `hop add` would not. The
   // watcher covers hand edits instantly; the poll covers everything else.
   FileView {
     path: root.storePath
@@ -185,9 +185,9 @@ Item {
   }
 
   // Lets a machine be opened straight from a keybinding:
-  //   omarchy-shell omassh connect "Prod web"
+  //   omarchy-shell hop connect "Prod web"
   IpcHandler {
-    target: "omassh"
+    target: "hop"
 
     // Resolved by the CLI rather than against root.hosts: a keybinding can
     // fire seconds after a machine was added elsewhere, and the snapshot in
