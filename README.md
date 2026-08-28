@@ -154,7 +154,12 @@ windowrule = workspace 4, class:^(org\.omarchy\.hop)$
 |------|------|
 | `~/.config/hop/hosts.json` | The machine list. Plain JSON, safe to edit or sync. |
 | `bin/hop` | The CLI the panel drives. |
-| `bin/hop-read-store` | The bounded, descriptor-validated store reader. |
+| `bin/hop-read-store` | The bounded, descriptor-validated, field-checked store reader. |
+
+Everything the bar reads goes through `bin/hop-read-store`, which caps how
+many machines a store may hold and checks every field's type, length and range
+before the shell sees it. Hand-edit the file if you like — an entry that does
+not fit is dropped with a note on stderr rather than shown.
 
 The store holds no secrets, but it is created `0600` inside a `0700`
 directory anyway — a list of which machines you have and who you log in as is

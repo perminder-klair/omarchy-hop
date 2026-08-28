@@ -10,21 +10,53 @@ Open and validation happen here, in a short-lived helper.  O_NONBLOCK keeps a
 special file from blocking during open, O_NOFOLLOW rejects symlinks in that
 same syscall, and fstat validates the descriptor already held before anything
 is read.  Both input and normalized output are capped at one MiB.
+
+The parsed store is then validated entry by entry, because a replaceable file
+is untrusted content and not merely an untrusted shape: the host count is
+capped, every field is checked for type, length and range, and entries that do
+not fit are dropped rather than handed to the shell.  What QML receives is a
+short list of known keys holding bounded scalars.
 """
 
 import json
 import math
 import os
+import re
 import stat
 import sys
 
 
 MAX_STORE_BYTES = 1024 * 1024
+MAX_HOSTS = 256
 EMPTY_STORE = {"version": 1, "hosts": []}
+
+# Field bounds. Generous enough that no machine anyone actually saves comes
+# close, tight enough that a planted store cannot hand the shell a field it
+# will spend real time or memory on.
+MAX_ID = 64
+MAX_NAME = 128
+MAX_HOST = 255
+MAX_USER = 64
+MAX_PATHISH = 4096
+MAX_INIT = 64 * 1024
+
+ID_RE = re.compile(r"\A[A-Za-z0-9._-]{1,%d}\Z" % MAX_ID)
+# Hostnames, IPv4/IPv6 literals and ~/.ssh/config aliases, and nothing that
+# ssh would read as an option: a leading dash is refused below.
+HOST_RE = re.compile(r"\A[A-Za-z0-9._:%%\[\]-]{1,%d}\Z" % MAX_HOST)
+USER_RE = re.compile(r"\A[A-Za-z0-9._-]{1,%d}\Z" % MAX_USER)
+# A single-line field carries no control bytes at all; a startup script is
+# allowed the tab and newline it needs and nothing else.
+CONTROL_RE = re.compile(r"[\x00-\x1f\x7f]")
+MULTILINE_CONTROL_RE = re.compile(r"[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]")
 
 
 class StoreError(Exception):
     """A store that cannot safely be consumed."""
+
+
+class HostError(Exception):
+    """One entry that cannot safely be shown."""
 
 
 def read_store(path: str) -> dict:
@@ -77,13 +109,120 @@ def read_store(path: str) -> dict:
     except (UnicodeDecodeError, ValueError, RecursionError) as exc:
         raise StoreError(f"invalid JSON in {path}") from exc
 
+    return normalize(value, strict=False)
+
+
+def normalize(value: object, *, strict: bool) -> dict:
+    """Bound and type-check a parsed store.
+
+    Reading is forgiving — one corrupted entry drops out and the rest of the
+    machines stay usable.  Writing is strict, so a value that would not survive
+    the next read is refused while the user is still there to see why.
+    """
     if not isinstance(value, dict):
-        raise StoreError(f"store root must be an object: {path}")
+        raise StoreError("store root must be an object")
     hosts = value.get("hosts", [])
     if not isinstance(hosts, list):
-        raise StoreError(f"store hosts must be an array: {path}")
-    value["hosts"] = hosts
-    return value
+        raise StoreError("store hosts must be an array")
+    if len(hosts) > MAX_HOSTS:
+        raise StoreError(f"a store holds at most {MAX_HOSTS} machines")
+
+    clean = []
+    for index, entry in enumerate(hosts):
+        try:
+            clean.append(validate_host(entry))
+        except HostError as exc:
+            if strict:
+                # Reads have already dropped anything pre-existing that is
+                # malformed, so the only entry a write can trip over is the one
+                # the user just edited. Name the problem, not its index.
+                raise StoreError(f"cannot save this machine: {exc}") from exc
+            print(f"hop: dropping machine {index}: {exc}", file=sys.stderr)
+
+    version = value.get("version")
+    return {
+        "version": version if isinstance(version, int) and not isinstance(version, bool) else 1,
+        "hosts": clean,
+    }
+
+
+def check_stream() -> dict:
+    """Validate a store on stdin, so nothing unreadable is ever written."""
+    raw = sys.stdin.buffer.read(MAX_STORE_BYTES + 1)
+    if len(raw) > MAX_STORE_BYTES:
+        raise StoreError(f"store exceeds {MAX_STORE_BYTES} bytes")
+    try:
+        value = json.loads(raw.decode("utf-8"))
+    except (UnicodeDecodeError, ValueError, RecursionError) as exc:
+        raise StoreError("invalid JSON on stdin") from exc
+    return normalize(value, strict=True)
+
+
+def text(entry: dict, key: str, limit: int, *, multiline: bool = False) -> str:
+    """One optional free-text field, bounded and stripped of control bytes."""
+    raw = entry.get(key, "")
+    if raw is None:
+        return ""
+    if not isinstance(raw, str):
+        raise HostError(f"{key} is not a string")
+    if len(raw) > limit:
+        raise HostError(f"{key} is longer than {limit} characters")
+    checked = MULTILINE_CONTROL_RE if multiline else CONTROL_RE
+    if checked.search(raw):
+        raise HostError(f"{key} contains control characters")
+    return raw
+
+
+def matched(entry: dict, key: str, pattern, *, required: bool) -> str:
+    """One identifier-shaped field, held to a narrow grammar."""
+    raw = entry.get(key, "")
+    if raw is None:
+        raw = ""
+    if not isinstance(raw, str):
+        raise HostError(f"{key} is not a string")
+    if raw == "":
+        if required:
+            raise HostError(f"{key} is empty")
+        return ""
+    if raw.startswith("-"):
+        raise HostError(f"{key} starts with a dash and would be read as an option")
+    if not pattern.match(raw):
+        raise HostError(f"{key} is not a plausible value")
+    return raw
+
+
+def validate_host(entry: object) -> dict:
+    if not isinstance(entry, dict):
+        raise HostError("entry is not an object")
+
+    port = entry.get("port", 22)
+    if port is None or port == "":
+        port = 22
+    if isinstance(port, bool) or not isinstance(port, int):
+        raise HostError("port is not an integer")
+    if not 1 <= port <= 65535:
+        raise HostError("port is out of range")
+
+    agent = entry.get("forwardAgent", False)
+    if agent is None:
+        agent = False
+    if not isinstance(agent, bool):
+        raise HostError("forwardAgent is not a boolean")
+
+    host = matched(entry, "host", HOST_RE, required=True)
+    name = text(entry, "name", MAX_NAME) or host
+
+    return {
+        "id": matched(entry, "id", ID_RE, required=True),
+        "name": name,
+        "host": host,
+        "user": matched(entry, "user", USER_RE, required=False),
+        "port": port,
+        "identity": text(entry, "identity", MAX_PATHISH),
+        "path": text(entry, "path", MAX_PATHISH),
+        "init": text(entry, "init", MAX_INIT, multiline=True),
+        "forwardAgent": agent,
+    }
 
 
 def emit(value: object) -> None:
@@ -97,15 +236,20 @@ def emit(value: object) -> None:
 
 def main() -> int:
     args = sys.argv[1:]
-    hosts_only = False
-    if args[:1] == ["--hosts"]:
-        hosts_only = True
-        args = args[1:]
-    if len(args) != 1:
-        print("usage: hop-read-store [--hosts] PATH", file=sys.stderr)
-        return 2
 
     try:
+        if args == ["--check"]:
+            emit(check_stream())
+            return 0
+
+        hosts_only = False
+        if args[:1] == ["--hosts"]:
+            hosts_only = True
+            args = args[1:]
+        if len(args) != 1:
+            print("usage: hop-read-store [--hosts] PATH | --check", file=sys.stderr)
+            return 2
+
         store = read_store(args[0])
         emit(store["hosts"] if hosts_only else store)
     except StoreError as exc:

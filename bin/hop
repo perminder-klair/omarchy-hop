@@ -47,12 +47,17 @@ read_hosts() {
 }
 
 # Every write lands through a temp file in the same directory so a crash
-# mid-write leaves the previous store intact rather than a truncated one.
+# mid-write leaves the previous store intact rather than a truncated one, and
+# through the same validator the reader uses, so a value that would be dropped
+# on the next read is refused now, while the user is still there to see why.
 write_store() {
   local tmp
   ensure_config_dir
   tmp=$(mktemp "$CONFIG_DIR/.hosts.XXXXXX")
-  cat >"$tmp"
+  python3 "$STORE_READER" --check >"$tmp" || {
+    rm -f "$tmp"
+    exit 1
+  }
   chmod 600 "$tmp"
   # -T replaces a planted symlink-to-directory instead of treating it as the
   # destination directory and moving the temporary file through the link.
@@ -89,7 +94,10 @@ parse_fields() {
     --name) fields=$(jq -c --arg v "$2" '.name = $v' <<<"$fields"); shift 2 ;;
     --host) fields=$(jq -c --arg v "$2" '.host = $v' <<<"$fields"); shift 2 ;;
     --user) fields=$(jq -c --arg v "$2" '.user = $v' <<<"$fields"); shift 2 ;;
-    --port) fields=$(jq -c --argjson v "${2:-0}" '.port = $v' <<<"$fields"); shift 2 ;;
+    --port)
+      [[ ${2:-} =~ ^[0-9]+$ ]] && ((10#$2 >= 1 && 10#$2 <= 65535)) \
+        || die "port must be a number between 1 and 65535"
+      fields=$(jq -c --argjson v "$((10#$2))" '.port = $v' <<<"$fields"); shift 2 ;;
     --identity) fields=$(jq -c --arg v "$2" '.identity = $v' <<<"$fields"); shift 2 ;;
     --path) fields=$(jq -c --arg v "$2" '.path = $v' <<<"$fields"); shift 2 ;;
     --init) fields=$(jq -c --arg v "$2" '.init = $v' <<<"$fields"); shift 2 ;;
@@ -177,6 +185,11 @@ ssh_argv() {
   agent=$(jq -r '.forwardAgent // false' <<<"$entry")
 
   [[ -n $host ]] || die "machine has no host"
+  # ssh has no `--` to end its options, so a destination or user beginning with
+  # a dash would be read as one — a crafted -oProxyCommand runs locally. The
+  # store reader refuses these too; this is the guard at the sink.
+  [[ $host != -* ]] || die "refusing host that would be read as an ssh option"
+  [[ $user != -* ]] || die "refusing user that would be read as an ssh option"
 
   local -a argv=(ssh -t)
   # -t is unconditional: without a forced tty an init script turns the
@@ -216,6 +229,8 @@ files_uri() {
   path=$(jq -r '.path // ""' <<<"$entry")
 
   [[ -n $host ]] || die "machine has no host"
+  [[ $host != -* ]] || die "refusing host that would be read as an ssh option"
+  [[ $user != -* ]] || die "refusing user that would be read as an ssh option"
 
   # gvfs does not expand ~ and has no idea what the remote home is, so an
   # empty path lands you at / every time. The login user's home is the right

@@ -187,6 +187,9 @@ Panel {
           Layout.fillWidth: true
           text: String(hostRow.entry.name || hostRow.entry.host)
           color: root.barForeground
+          // A name comes out of a file any same-user process can replace, and
+          // AutoText would sniff it as HTML and render tags, images included.
+          textFormat: Text.PlainText
           elide: Text.ElideRight
           font.family: Style.font.family
           font.pixelSize: Style.font.body
@@ -196,6 +199,7 @@ Panel {
           Layout.fillWidth: true
           text: root.subtitleFor(hostRow.entry)
           color: Qt.darker(root.barForeground, 1.6)
+          textFormat: Text.PlainText
           elide: Text.ElideMiddle
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
@@ -254,10 +258,14 @@ Panel {
     }
   }
 
+  // The pipeline needs a shell, but nothing store-derived is ever spliced into
+  // the script it runs: JSON quoting is not shell quoting, and an id carrying a
+  // command substitution would have executed. Both values arrive as argv and
+  // are referenced positionally, so bash never parses them as syntax.
   function copyCommand(id) {
     if (!service) return
-    copyProc.command = ["bash", "-c",
-      "'" + service.ctl + "' command " + JSON.stringify(String(id)) + " | wl-copy"]
+    copyProc.command = ["bash", "-c", '"$0" command "$1" | wl-copy',
+      String(service.ctl), String(id)]
     copyProc.running = true
     root.statusMessage = "ssh command copied"
     messageTimer.restart()
@@ -549,6 +557,7 @@ Panel {
           visible: root.lastError !== ""
           text: root.lastError
           color: Color.urgent
+          textFormat: Text.PlainText
           wrapMode: Text.WrapAnywhere
           maximumLineCount: 3
           elide: Text.ElideRight
@@ -561,6 +570,7 @@ Panel {
           visible: root.statusMessage !== ""
           text: root.statusMessage
           color: Color.accent
+          textFormat: Text.PlainText
           font.family: Style.font.family
           font.pixelSize: Style.font.caption
         }

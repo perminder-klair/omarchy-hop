@@ -32,6 +32,11 @@ Item {
 
   readonly property int count: hosts.length
 
+  // The CLI already caps the list and validates every field, so this is the
+  // second of two identical limits rather than the only one: a list arriving
+  // over stdout still cannot make the panel build an unbounded number of rows.
+  readonly property int maxHosts: 256
+
   function hostById(id) {
     for (var i = 0; i < hosts.length; i++)
       if (String(hosts[i].id) === String(id)) return hosts[i]
@@ -115,7 +120,8 @@ Item {
       onStreamFinished: {
         try {
           var list = JSON.parse(text)
-          root.hosts = Array.isArray(list) ? list : []
+          if (!Array.isArray(list)) list = []
+          root.hosts = list.length > root.maxHosts ? list.slice(0, root.maxHosts) : list
         } catch (e) {
           root.hosts = []
           root.lastError = "Could not read " + root.storePath
@@ -164,7 +170,8 @@ Item {
   // Poll the short-lived CLI rather than opening or watching the predictable
   // store path in this long-lived shell process. The CLI's reader uses a
   // nonblocking, no-follow open, validates the held descriptor, caps both the
-  // file and output sizes, and returns only parsed JSON.
+  // file and output sizes, and returns only parsed JSON whose host count is
+  // capped and whose every field has been type-, length- and range-checked.
   Timer {
     interval: 10000
     repeat: true
