@@ -38,6 +38,7 @@ then expose it in the panel.
 ```bash
 bash -n bin/hop
 bash tests/store-reader.sh
+bash tests/detach.sh
 omarchy plugin validate .
 ```
 
@@ -46,6 +47,14 @@ schema version, required fields, entry points that exist, and no symlinks
 inside the plugin folder.
 
 ## Things worth knowing
+
+- **Sessions are detached before they are handed off.** The bar spawns
+  `hop connect` as its own child and keeps a handle on that pid. `setsid`
+  alone does not break the link — it forks only when it is already a process
+  group leader, which a child of the bar is not — so `bin/hop` forks
+  explicitly through `detach()`. Without it the terminal inherits hop's pid
+  and the bar takes your session down on the next reload, update, or machine
+  you open. `tests/detach.sh` guards this.
 
 - **The store is rewritten by atomic rename.** `Service.qml` deliberately
   polls through `bin/hop`; it never opens or watches the predictable path.

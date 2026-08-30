@@ -259,6 +259,31 @@ cmd_uri() {
   files_uri "$(resolve "$1")"
 }
 
+# ---- launching -------------------------------------------------------------
+
+# Hands a launcher off so that it outlives this script, and — the part that
+# matters — the process that ran this script.
+#
+# The bar is a long-lived shell process that spawns `hop` as a child and keeps
+# a handle on that pid. `setsid` on its own does not break that link: it forks
+# only when it is already a process group leader, and a child of the bar is
+# not one, so it calls setsid() in place and the exec chain keeps hop's pid.
+# The terminal then *becomes* the process the bar is holding, and the bar takes
+# it down whenever it lets go of that handle — on a shell reload, on an Omarchy
+# update, or simply when the next machine is opened through the same slot. A
+# session you were working in disappears for a reason that has nothing to do
+# with it. --fork makes the fork unconditional, so the window is orphaned onto
+# systemd, in its own session and its own scope, where nothing upstream can
+# reach it.
+#
+# Its stdio goes to /dev/null for the same reason: an inherited pipe would keep
+# the bar reading from a terminal for as long as that window stayed open, and
+# would turn an emulator's harmless startup warning into the panel's error
+# line. Anything wrong with the launch itself is reported before we get here.
+detach() {
+  setsid --fork "$@" </dev/null >/dev/null 2>&1
+}
+
 cmd_files() {
   [[ $# -ge 1 ]] || die "files needs an id or name"
   local uri
@@ -271,9 +296,9 @@ cmd_files() {
   command -v uwsm-app >/dev/null && launcher=(uwsm-app --)
 
   if command -v nautilus >/dev/null; then
-    exec setsid "${launcher[@]}" nautilus --new-window "$uri"
+    detach "${launcher[@]}" nautilus --new-window "$uri"
   elif command -v xdg-open >/dev/null; then
-    exec setsid xdg-open "$uri"
+    detach xdg-open "$uri"
   else
     die "no file manager found"
   fi
@@ -299,9 +324,9 @@ cmd_connect() {
   # omarchy-launch-tui is the supported way to reach the terminal the user
   # actually chose; the fallback keeps this script usable on a plain desktop.
   if command -v omarchy-launch-tui >/dev/null; then
-    exec omarchy-launch-tui "--app-id=$APP_ID" "${argv[@]}"
+    detach omarchy-launch-tui "--app-id=$APP_ID" "${argv[@]}"
   elif command -v xdg-terminal-exec >/dev/null; then
-    exec setsid xdg-terminal-exec "--app-id=$APP_ID" -e "${argv[@]}"
+    detach xdg-terminal-exec "--app-id=$APP_ID" -e "${argv[@]}"
   else
     die "no terminal launcher found (omarchy-launch-tui or xdg-terminal-exec)"
   fi

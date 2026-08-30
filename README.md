@@ -10,6 +10,9 @@ terminal, runs the startup script you gave it, and leaves you at a prompt.
 - A bar icon listing every machine you have saved.
 - Click one and `ssh` runs in the terminal `xdg-terminal-exec` would pick —
   the same one every other Omarchy launcher uses.
+- Sessions outlive the bar. The window is handed to systemd rather than kept
+  as a child of the shell process, so restarting the shell, updating Omarchy,
+  or opening a second machine leaves the sessions you already have alone.
 - Each machine can carry a **startup script**: a shell snippet that runs the
   moment you arrive (`cd /srv/app && docker compose ps`, `tmux attach`,
   whatever). When it finishes you are dropped into a normal login shell
