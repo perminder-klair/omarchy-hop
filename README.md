@@ -3,7 +3,7 @@
 Your SSH machines, in the Omarchy bar. Pick one and it opens in your default
 terminal, runs the startup script you gave it, and leaves you at a prompt.
 
-![The machine list and the edit form](docs/preview.png)
+![The machine list and the edit form](preview.png)
 
 ## What it does
 
