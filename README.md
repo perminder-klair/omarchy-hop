@@ -10,6 +10,11 @@ terminal, runs the startup script you gave it, and leaves you at a prompt.
 - A bar icon listing every machine you have saved.
 - Click one and `ssh` runs in the terminal `xdg-terminal-exec` would pick —
   the same one every other Omarchy launcher uses.
+- Sessions can **keep running on the machine**. Turn on *Keep the session
+  running* and the session lives in a tmux session named after the machine:
+  close the window, lose wifi, reboot your laptop, and opening the machine
+  again puts you back in front of the same work rather than starting over.
+  Needs `tmux` on the remote side; without it you get an ordinary session.
 - Sessions outlive the bar. The window is handed to systemd rather than kept
   as a child of the shell process, so restarting the shell, updating Omarchy,
   or opening a second machine leaves the sessions you already have alone.
@@ -123,6 +128,7 @@ without the bar:
 hop list
 hop add --host 10.0.0.5 --name "Prod web" --user deploy --init 'cd /srv/app'
 hop set <id> --port 2222
+hop set <id> --persist      # keep it running in tmux (--no-persist undoes it)
 hop connect "Prod web"      # opens a terminal, same as clicking
 hop files "Prod web"        # opens Files over SFTP
 hop uri "Prod web"          # prints the sftp:// URL instead of opening it
@@ -132,6 +138,21 @@ hop rm "Prod web"
 
 `--init-file some-script.sh` is there for startup scripts long enough that you
 would rather keep them in a file.
+
+### Keeping a session alive
+
+`--persist` runs the session inside `tmux new-session -A -D -s hop-<id>` on
+the remote machine. The consequences worth knowing:
+
+- The session is named after the machine's **id**, not its name, so renaming a
+  machine in the panel does not strand the session you are working in. Run
+  `tmux ls` on the machine to see them.
+- The startup script runs when the session is **created**. Reattaching does not
+  run it again, so whatever it launched is not started a second time.
+- Reattaching detaches any other client, which is what makes a window killed
+  mid-session let go of it rather than hold it at its old size.
+- On a machine without `tmux` you get an ordinary session instead, rather than
+  an error in a window that is about to close.
 
 ## From a keybinding
 

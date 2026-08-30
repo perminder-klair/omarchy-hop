@@ -39,6 +39,7 @@ then expose it in the panel.
 bash -n bin/hop
 bash tests/store-reader.sh
 bash tests/detach.sh
+bash tests/session-command.sh
 omarchy plugin validate .
 ```
 
@@ -48,6 +49,11 @@ inside the plugin folder.
 
 ## Things worth knowing
 
+- **The remote command is quoted three deep.** A persisted session is a login
+  shell holding a `tmux new-session` holding a second login shell holding the
+  startup script. The second one is not redundant: panes inherit the tmux
+  *server's* environment, which may predate anything that built the far side's
+  `PATH`. `tests/session-command.sh` runs the thing rather than reading it.
 - **Sessions are detached before they are handed off.** The bar spawns
   `hop connect` as its own child and keeps a handle on that pid. `setsid`
   alone does not break the link — it forks only when it is already a process

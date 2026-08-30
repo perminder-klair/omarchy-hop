@@ -46,6 +46,7 @@ Panel {
   property string fPath: ""
   property string fInit: ""
   property bool fAgent: false
+  property bool fPersist: false
 
   readonly property bool canSave: fHost.trim() !== ""
 
@@ -83,6 +84,7 @@ Panel {
     root.fPath = ""
     root.fInit = ""
     root.fAgent = false
+    root.fPersist = false
     root.confirmingDelete = false
     root.mode = "form"
   }
@@ -97,6 +99,7 @@ Panel {
     root.fPath = String(entry.path || "")
     root.fInit = String(entry.init || "")
     root.fAgent = entry.forwardAgent === true
+    root.fPersist = entry.persist === true
     root.confirmingDelete = false
     root.mode = "form"
   }
@@ -116,7 +119,8 @@ Panel {
       identity: root.fIdentity.trim(),
       path: root.fPath.trim(),
       init: root.fInit,
-      forwardAgent: root.fAgent
+      forwardAgent: root.fAgent,
+      persist: root.fPersist
     })
     root.statusMessage = root.editId === "" ? "Machine added" : "Saved"
     messageTimer.restart()
@@ -514,6 +518,17 @@ Panel {
           foreground: root.barForeground
           accent: Color.accent
           onClicked: root.fAgent = !root.fAgent
+        }
+
+        Toggle {
+          Layout.fillWidth: true
+          visible: root.mode === "form"
+          label: "Keep the session running"
+          description: "Run it in tmux on the machine, and reattach next time instead of starting over. Needs tmux there."
+          checked: root.fPersist
+          foreground: root.barForeground
+          accent: Color.accent
+          onClicked: root.fPersist = !root.fPersist
         }
 
         RowLayout {

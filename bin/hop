@@ -106,6 +106,8 @@ parse_fields() {
       fields=$(jq -c --rawfile v "$2" '.init = $v' <<<"$fields"); shift 2 ;;
     --agent) fields=$(jq -c '.forwardAgent = true' <<<"$fields"); shift ;;
     --no-agent) fields=$(jq -c '.forwardAgent = false' <<<"$fields"); shift ;;
+    --persist) fields=$(jq -c '.persist = true' <<<"$fields"); shift ;;
+    --no-persist) fields=$(jq -c '.persist = false' <<<"$fields"); shift ;;
     *) die "unknown flag: $1" ;;
     esac
   done
@@ -130,7 +132,8 @@ cmd_add() {
   updated=$(jq --arg id "$id" --argjson f "$fields" \
     '.hosts = ((.hosts // []) + [{
         id: $id, name: "", host: "", user: "", port: 22,
-        identity: "", path: "", init: "", forwardAgent: false
+        identity: "", path: "", init: "", forwardAgent: false,
+        persist: false
       } * $f])' <<<"$store")
   write_store <<<"$updated"
 
@@ -175,7 +178,8 @@ sq() {
 # script containing newlines survives being read back.
 ssh_argv() {
   local entry="$1"
-  local host user port identity path init agent
+  local id host user port identity path init agent persist
+  id=$(jq -r '.id // ""' <<<"$entry")
   host=$(jq -r '.host // ""' <<<"$entry")
   user=$(jq -r '.user // ""' <<<"$entry")
   port=$(jq -r '.port // 22' <<<"$entry")
@@ -183,6 +187,7 @@ ssh_argv() {
   path=$(jq -r '.path // ""' <<<"$entry")
   init=$(jq -r '.init // ""' <<<"$entry")
   agent=$(jq -r '.forwardAgent // false' <<<"$entry")
+  persist=$(jq -r '.persist // false' <<<"$entry")
 
   [[ -n $host ]] || die "machine has no host"
   # ssh has no `--` to end its options, so a destination or user beginning with
@@ -210,11 +215,56 @@ ssh_argv() {
   local script=""
   [[ -n $path && $path != "null" ]] && script+="cd $(sq "$path") || exit 1"$'\n'
   [[ -n $init && $init != "null" ]] && script+="$init"$'\n'
-  if [[ -n $script ]]; then
-    argv+=("exec \"\$SHELL\" -lc $(sq "${script}exec \"\$SHELL\" -l")")
+
+  # What the login shell is asked to do: the startup script, then hand the
+  # session over to an interactive login shell rather than disconnecting.
+  local body="${script}exec \"\$SHELL\" -l"
+
+  if [[ $persist == true ]]; then
+    argv+=("exec \"\$SHELL\" -lc $(sq "$(tmux_body "$id" "$body")")")
+  elif [[ -n $script ]]; then
+    argv+=("exec \"\$SHELL\" -lc $(sq "$body")")
   fi
 
   printf '%s\0' "${argv[@]}"
+}
+
+# tmux session names are per machine and derived from the id, not the name:
+# renaming a machine in the panel must not strand the session you are in the
+# middle of. `.` and `:` are the two bytes tmux reads as window and pane
+# separators, so anything outside the safe set is folded away.
+tmux_session() {
+  local id="${1//[^A-Za-z0-9_-]/-}"
+  printf 'hop-%s' "${id:-default}"
+}
+
+# Wraps a session so it survives the terminal it was opened in.
+#
+# `new-session -A` attaches to the session if it is already there and creates
+# it otherwise, which is the whole feature: close the window, lose the laptop's
+# wifi, reboot the bar — the work is still running, and opening the machine
+# again puts you back in front of it. -D detaches whatever client was attached
+# before, so a client stranded by a dead terminal cannot hold the session at
+# its old size.
+#
+# On the reattach path tmux ignores the command, so the startup script runs
+# once, when the session is created, and coming back does not start a second
+# copy of whatever it launched.
+#
+# The command tmux is given runs through `$SHELL -lc` a second time on purpose:
+# panes inherit the environment of the tmux *server*, which may have been
+# started long ago by something with a different PATH, so the far side has to
+# build its own again. tmux itself is looked for from inside the login shell
+# for the same reason — on the machines where it lives in ~/.local/bin, the
+# shell ssh hands the command to has never seen that directory.
+tmux_body() {
+  local id="$1" body="$2"
+  local attach="exec \"\$SHELL\" -lc $(sq "$body")"
+  local start="exec tmux new-session -A -D"
+  start+=" -s $(sq "$(tmux_session "$id")") $(sq "$attach")"
+  # Falls through to the plain session on a machine without tmux, rather than
+  # failing in a terminal that is about to close and take the message with it.
+  printf 'command -v tmux >/dev/null 2>&1 && %s\n%s' "$start" "$body"
 }
 
 # gvfs speaks sftp:// natively, which is why this opens a URI rather than
@@ -357,6 +407,9 @@ Flags for add/set:
   --init S          shell snippet to run on arrival
   --init-file F     same, read from a file
   --agent/--no-agent   forward your ssh agent
+  --persist/--no-persist
+                    keep the session running on the remote machine in tmux,
+                    and reattach to it next time instead of starting over
 
 Passwords are never stored: ssh prompts in the terminal it opens.
 USAGE

@@ -191,6 +191,16 @@ def matched(entry: dict, key: str, pattern, *, required: bool) -> str:
     return raw
 
 
+def flag(entry: dict, key: str) -> bool:
+    """One optional boolean, absent meaning off."""
+    raw = entry.get(key, False)
+    if raw is None:
+        return False
+    if not isinstance(raw, bool):
+        raise HostError(f"{key} is not a boolean")
+    return raw
+
+
 def validate_host(entry: object) -> dict:
     if not isinstance(entry, dict):
         raise HostError("entry is not an object")
@@ -203,11 +213,8 @@ def validate_host(entry: object) -> dict:
     if not 1 <= port <= 65535:
         raise HostError("port is out of range")
 
-    agent = entry.get("forwardAgent", False)
-    if agent is None:
-        agent = False
-    if not isinstance(agent, bool):
-        raise HostError("forwardAgent is not a boolean")
+    agent = flag(entry, "forwardAgent")
+    persist = flag(entry, "persist")
 
     host = matched(entry, "host", HOST_RE, required=True)
     name = text(entry, "name", MAX_NAME) or host
@@ -222,6 +229,7 @@ def validate_host(entry: object) -> dict:
         "path": text(entry, "path", MAX_PATHISH),
         "init": text(entry, "init", MAX_INIT, multiline=True),
         "forwardAgent": agent,
+        "persist": persist,
     }
 
 

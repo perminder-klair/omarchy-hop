@@ -25,7 +25,7 @@ Item {
 
   // ---- live state, read by BarWidget.qml and Panel.qml -------------------
 
-  // [{id, name, host, user, port, identity, init, forwardAgent}]
+  // [{id, name, host, user, port, identity, init, forwardAgent, persist}]
   property var hosts: []
   property string lastError: ""
   property string lastConnected: ""
@@ -66,6 +66,7 @@ Item {
     if (fields.path !== undefined) argv.push("--path", String(fields.path))
     if (fields.init !== undefined) argv.push("--init", String(fields.init))
     if (fields.forwardAgent !== undefined) argv.push(fields.forwardAgent ? "--agent" : "--no-agent")
+    if (fields.persist !== undefined) argv.push(fields.persist ? "--persist" : "--no-persist")
     return argv
   }
 

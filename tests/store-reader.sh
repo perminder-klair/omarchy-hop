@@ -105,12 +105,13 @@ expect_dropped "out-of-range port" '{"id":"e","host":"example.com","port":70000}
 expect_dropped "boolean port" '{"id":"e","host":"example.com","port":true}'
 expect_dropped "non-string name" '{"id":"e","host":"example.com","name":{}}'
 expect_dropped "newline in name" '{"id":"e","host":"example.com","name":"a\nb"}'
+expect_dropped "non-boolean persist" '{"id":"e","host":"example.com","persist":"yes"}'
 expect_dropped "entry that is not an object" '"not an object"'
 
 # Only the known keys reach the shell, whatever else the file carries.
 write_hosts '[{"id":"good","host":"example.com","name":"Good","surprise":"extra"}]'
 [[ $(hop list | jq -r '.[0] | keys_unsorted | join(",")') \
-  == "id,name,host,user,port,identity,path,init,forwardAgent" ]] \
+  == "id,name,host,user,port,identity,path,init,forwardAgent,persist" ]] \
   || fail "unexpected keys reached the shell"
 
 # An over-long field is a dropped entry, not a truncated one.
